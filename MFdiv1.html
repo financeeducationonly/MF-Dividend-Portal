@@ -1,0 +1,1342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mutual Fund Dividend Cashflow & NAV Portal</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- SheetJS (Excel Read/Write) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- jsPDF & AutoTable (PDF Export) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    .tab-active { border-bottom: 3px solid #2563eb; color: #2563eb; font-weight: 600; }
+    .badge { font-size: 0.75rem; padding: 0.2rem 0.6rem; border-radius: 9999px; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col font-sans">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+      <div class="flex items-center space-x-3">
+        <div class="bg-blue-600 text-white p-2.5 rounded-xl shadow-md">
+          <i class="fa-solid fa-chart-line text-lg"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold leading-tight text-slate-900">MF Dividend & Cashflow Portal</h1>
+          <p class="text-xs text-slate-500">Track NAV, IDCW Payouts, XIRR & Generate Cashflow Reports</p>
+        </div>
+      </div>
+      <div class="flex items-center space-x-2">
+        <button onclick="exportFullDatabase()" class="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+          <i class="fa-solid fa-download mr-1"></i> Backup DB
+        </button>
+        <label class="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer">
+          <i class="fa-solid fa-upload mr-1"></i> Restore DB
+          <input type="file" id="dbRestoreInput" class="hidden" accept=".json" onchange="importFullDatabase(event)">
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full">
+    
+    <!-- Navigation Tabs -->
+    <div class="flex border-b border-slate-200 bg-white rounded-t-xl px-4 pt-2 shadow-sm space-x-6 text-sm">
+      <button onclick="switchTab('cashflow')" id="tab-cashflow" class="py-3 px-2 tab-active transition flex items-center gap-2">
+        <i class="fa-solid fa-file-invoice-dollar"></i> Cashflow Generator
+      </button>
+      <button onclick="switchTab('comparison')" id="tab-comparison" class="py-3 px-2 text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
+        <i class="fa-solid fa-code-compare"></i> Scheme Comparison
+      </button>
+      <button onclick="switchTab('schemes')" id="tab-schemes" class="py-3 px-2 text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
+        <i class="fa-solid fa-layer-group"></i> Manage Schemes
+      </button>
+      <button onclick="switchTab('nav')" id="tab-nav" class="py-3 px-2 text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
+        <i class="fa-solid fa-arrow-trend-up"></i> NAV History
+      </button>
+      <button onclick="switchTab('dividends')" id="tab-dividends" class="py-3 px-2 text-slate-500 hover:text-slate-800 transition flex items-center gap-2">
+        <i class="fa-solid fa-hand-holding-dollar"></i> Dividend (IDCW) Records
+      </button>
+    </div>
+
+    <!-- TAB 1: CASHFLOW GENERATOR -->
+    <section id="view-cashflow" class="bg-white p-6 rounded-b-xl shadow-sm border border-slate-200">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Select Scheme</label>
+          <select id="cfSchemeSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            <!-- Populated dynamically -->
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Investment Amount (₹)</label>
+          <input type="number" id="cfAmount" value="500000" min="1000" step="5000" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-medium">
+        </div>
+        <div>
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Horizon / Time Period</label>
+          <select id="cfPeriodSelect" onchange="handlePeriodChange()" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+            <option value="1Y">1 Year Ago</option>
+            <option value="2Y">2 Years Ago</option>
+            <option value="3Y" selected>3 Years Ago</option>
+            <option value="5Y">5 Years Ago</option>
+            <option value="7Y">7 Years Ago</option>
+            <option value="10Y">10 Years Ago</option>
+            <option value="15Y">15 Years Ago</option>
+            <option value="20Y">20 Years Ago</option>
+            <option value="25Y">25 Years Ago</option>
+            <option value="INCEPTION">Since Inception</option>
+            <option value="CUSTOM">Custom Date</option>
+          </select>
+        </div>
+        <div id="customDateContainer" class="hidden">
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Custom Start Date</label>
+          <input type="date" id="cfCustomDate" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 items-center justify-between pb-6 border-b border-slate-200">
+        <button onclick="generateCashflowReport()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-lg text-sm shadow transition flex items-center gap-2">
+          <i class="fa-solid fa-calculator"></i> Generate Detailed Cashflow
+        </button>
+
+        <div class="flex gap-2" id="exportButtonGroup" style="display: none;">
+          <button onclick="exportReportToExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-file-excel"></i> Export Excel
+          </button>
+          <button onclick="exportReportToPDF()" class="bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium px-3.5 py-2 rounded-lg transition flex items-center gap-1.5 shadow-sm">
+            <i class="fa-solid fa-file-pdf"></i> Export PDF Report
+          </button>
+        </div>
+      </div>
+
+      <!-- Results & Metrics -->
+      <div id="cashflowResults" class="mt-6" style="display: none;">
+        <!-- KPI Summary Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <p class="text-xs text-slate-500 font-medium">Initial Investment</p>
+            <h4 class="text-lg font-bold text-slate-800" id="resInitialInv">₹0</h4>
+            <span class="text-xs text-slate-400" id="resUnits">0.00 Units</span>
+          </div>
+          <div class="bg-emerald-50 p-4 rounded-xl border border-emerald-100">
+            <p class="text-xs text-emerald-600 font-medium">Total Dividend Received</p>
+            <h4 class="text-lg font-bold text-emerald-700" id="resTotalDiv">₹0</h4>
+            <span class="text-xs text-emerald-500" id="resDivYield">0% of Cost</span>
+          </div>
+          <div class="bg-blue-50 p-4 rounded-xl border border-blue-100">
+            <p class="text-xs text-blue-600 font-medium">Current Fund Value</p>
+            <h4 class="text-lg font-bold text-blue-700" id="resCurrentVal">₹0</h4>
+            <span class="text-xs text-blue-500" id="resLatestNav">NAV: ₹0.00</span>
+          </div>
+          <div class="bg-purple-50 p-4 rounded-xl border border-purple-100">
+            <p class="text-xs text-purple-600 font-medium">Total Value (Div + Val)</p>
+            <h4 class="text-lg font-bold text-purple-700" id="resTotalVal">₹0</h4>
+            <span class="text-xs text-purple-500" id="resGain">Gain: ₹0 (0%)</span>
+          </div>
+          <div class="bg-amber-50 p-4 rounded-xl border border-amber-200">
+            <p class="text-xs text-amber-700 font-semibold uppercase">XIRR Return</p>
+            <h4 class="text-xl font-black text-amber-600" id="resXirr">0.00%</h4>
+            <span class="text-xs text-amber-600 font-medium">Annualized Internal Return</span>
+          </div>
+        </div>
+
+        <!-- Cashflow Table -->
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left text-sm" id="cashflowTable">
+            <thead class="bg-slate-100 text-slate-600 text-xs font-semibold uppercase">
+              <tr>
+                <th class="py-3 px-4">Date</th>
+                <th class="py-3 px-4">Event / Description</th>
+                <th class="py-3 px-4 text-right">Applicable NAV (₹)</th>
+                <th class="py-3 px-4 text-right">Dividend/Unit (₹)</th>
+                <th class="py-3 px-4 text-right">Cashflow (₹)</th>
+                <th class="py-3 px-4 text-right">Cumulative Div (₹)</th>
+                <th class="py-3 px-4 text-right">Fund Value (₹)</th>
+              </tr>
+            </thead>
+            <tbody id="cashflowTableBody" class="divide-y divide-slate-200">
+              <!-- Populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: MULTI-SCHEME COMPARISON -->
+    <section id="view-comparison" class="bg-white p-6 rounded-b-xl shadow-sm border border-slate-200 hidden">
+      <div class="mb-6">
+        <h3 class="text-base font-bold text-slate-800 mb-2">Compare Multiple Schemes Cashflow & Returns</h3>
+        <p class="text-xs text-slate-500 mb-4">Select multiple schemes to compare total dividends, final valuation, and XIRR side-by-side.</p>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Investment Amount per Scheme (₹)</label>
+            <input type="number" id="cmpAmount" value="500000" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Period</label>
+            <select id="cmpPeriodSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm">
+              <option value="1Y">1 Year Ago</option>
+              <option value="3Y" selected>3 Years Ago</option>
+              <option value="5Y">5 Years Ago</option>
+              <option value="7Y">7 Years Ago</option>
+              <option value="10Y">10 Years Ago</option>
+            </select>
+          </div>
+          <div class="flex items-end">
+            <button onclick="runComparison()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-lg text-sm transition">
+              <i class="fa-solid fa-chart-simple mr-1"></i> Compare Selected Schemes
+            </button>
+          </div>
+        </div>
+
+        <div class="mb-4">
+          <label class="block text-xs font-semibold uppercase text-slate-500 mb-2">Select Schemes to Include:</label>
+          <div id="comparisonSchemeCheckboxes" class="flex flex-wrap gap-3">
+            <!-- Dynamic checkboxes -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparison Chart & Table -->
+      <div id="comparisonResults" class="hidden">
+        <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
+          <canvas id="comparisonChart" height="90"></canvas>
+        </div>
+
+        <div class="overflow-x-auto rounded-xl border border-slate-200">
+          <table class="w-full text-left text-sm" id="comparisonTable">
+            <thead class="bg-slate-100 text-slate-600 text-xs font-semibold uppercase">
+              <tr>
+                <th class="py-3 px-4">Scheme Name</th>
+                <th class="py-3 px-4 text-right">Investment (₹)</th>
+                <th class="py-3 px-4 text-right">Units Allotted</th>
+                <th class="py-3 px-4 text-right">Total Dividends (₹)</th>
+                <th class="py-3 px-4 text-right">Latest Value (₹)</th>
+                <th class="py-3 px-4 text-right">Total Return (₹)</th>
+                <th class="py-3 px-4 text-right">XIRR %</th>
+              </tr>
+            </thead>
+            <tbody id="comparisonTableBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: MANAGE SCHEMES -->
+    <section id="view-schemes" class="bg-white p-6 rounded-b-xl shadow-sm border border-slate-200 hidden">
+      <div class="flex justify-between items-center mb-6">
+        <div>
+          <h3 class="text-base font-bold text-slate-800">Mutual Fund Schemes</h3>
+          <p class="text-xs text-slate-500">Add or manage scheme profiles, categories, and inception details.</p>
+        </div>
+        <button onclick="openAddSchemeModal()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium px-4 py-2.5 rounded-lg transition flex items-center gap-1.5 shadow">
+          <i class="fa-solid fa-plus"></i> Add New Scheme
+        </button>
+      </div>
+
+      <div class="overflow-x-auto rounded-xl border border-slate-200">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-slate-100 text-slate-600 text-xs font-semibold uppercase">
+            <tr>
+              <th class="py-3 px-4">Scheme Code</th>
+              <th class="py-3 px-4">Scheme Name</th>
+              <th class="py-3 px-4">Category / Type</th>
+              <th class="py-3 px-4">NAV Records</th>
+              <th class="py-3 px-4">Dividend Events</th>
+              <th class="py-3 px-4 text-center">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="schemesTableBody" class="divide-y divide-slate-200">
+            <!-- Dynamic schemes list -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- TAB 4: NAV DATA IMPORT & ENTRY -->
+    <section id="view-nav" class="bg-white p-6 rounded-b-xl shadow-sm border border-slate-200 hidden">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <!-- Manual NAV Entry -->
+        <div class="border border-slate-200 p-5 rounded-xl bg-slate-50">
+          <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-pen-to-square text-blue-600"></i> Single NAV Entry
+          </h4>
+          <form onsubmit="handleManualNavSubmit(event)" class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Target Scheme</label>
+              <select id="navSchemeSelect" required class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white"></select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Date</label>
+                <input type="date" id="navDate" required class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">NAV (₹)</label>
+                <input type="number" step="0.0001" id="navValue" required placeholder="e.g. 45.2340" class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white">
+              </div>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg text-xs transition">
+              Save NAV Record
+            </button>
+          </form>
+        </div>
+
+        <!-- Excel / CSV Bulk NAV Import -->
+        <div class="border border-slate-200 p-5 rounded-xl bg-slate-50">
+          <div class="flex justify-between items-center mb-3">
+            <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-file-excel text-emerald-600"></i> Bulk NAV Import (Excel / CSV)
+            </h4>
+            <button onclick="downloadNavTemplate()" class="text-xs text-blue-600 hover:underline">
+              <i class="fa-solid fa-download"></i> Download Template
+            </button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Target Scheme</label>
+              <select id="bulkNavSchemeSelect" class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white"></select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Select Excel (.xlsx) or CSV File</label>
+              <input type="file" id="navExcelFile" accept=".xlsx, .xls, .csv" class="w-full border border-slate-300 rounded-lg p-1.5 text-xs bg-white">
+              <p class="text-[11px] text-slate-400 mt-1">Columns required: <code>Date</code> (YYYY-MM-DD or DD-MM-YYYY) and <code>NAV</code>.</p>
+            </div>
+            <button onclick="importNavExcel()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-lg text-xs transition">
+              <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Import Daily NAVs
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- NAV History Table View -->
+      <div class="border-t border-slate-200 pt-6">
+        <div class="flex justify-between items-center mb-4">
+          <div class="flex items-center gap-3">
+            <label class="text-xs font-semibold uppercase text-slate-500">Show Records for:</label>
+            <select id="navViewSchemeSelect" onchange="renderNavHistoryTable()" class="border border-slate-300 rounded-lg p-1.5 text-sm"></select>
+          </div>
+          <span class="text-xs text-slate-500" id="navCountBadge">0 records</span>
+        </div>
+        <div class="overflow-y-auto max-h-72 rounded-xl border border-slate-200">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-100 text-slate-600 text-xs font-semibold uppercase sticky top-0">
+              <tr>
+                <th class="py-2.5 px-4">Date</th>
+                <th class="py-2.5 px-4 text-right">NAV (₹)</th>
+                <th class="py-2.5 px-4 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="navHistoryTableBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 5: DIVIDEND DATA IMPORT & ENTRY -->
+    <section id="view-dividends" class="bg-white p-6 rounded-b-xl shadow-sm border border-slate-200 hidden">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <!-- Manual Dividend Entry -->
+        <div class="border border-slate-200 p-5 rounded-xl bg-slate-50">
+          <h4 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-pen-to-square text-blue-600"></i> Single Dividend (IDCW) Entry
+          </h4>
+          <form onsubmit="handleManualDivSubmit(event)" class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Target Scheme</label>
+              <select id="divSchemeSelect" required class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white"></select>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Record / Ex-Date</label>
+                <input type="date" id="divDate" required class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">Dividend per Unit (₹)</label>
+                <input type="number" step="0.0001" id="divRate" required placeholder="e.g. 0.35" class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white">
+              </div>
+            </div>
+            <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 rounded-lg text-xs transition">
+              Save Dividend Event
+            </button>
+          </form>
+        </div>
+
+        <!-- Excel / CSV Bulk Dividend Import -->
+        <div class="border border-slate-200 p-5 rounded-xl bg-slate-50">
+          <div class="flex justify-between items-center mb-3">
+            <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <i class="fa-solid fa-file-excel text-emerald-600"></i> Bulk Dividend Import (Excel / CSV)
+            </h4>
+            <button onclick="downloadDivTemplate()" class="text-xs text-blue-600 hover:underline">
+              <i class="fa-solid fa-download"></i> Download Template
+            </button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Target Scheme</label>
+              <select id="bulkDivSchemeSelect" class="w-full border border-slate-300 rounded-lg p-2 text-sm bg-white"></select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-slate-600 mb-1">Select Excel (.xlsx) or CSV File</label>
+              <input type="file" id="divExcelFile" accept=".xlsx, .xls, .csv" class="w-full border border-slate-300 rounded-lg p-1.5 text-xs bg-white">
+              <p class="text-[11px] text-slate-400 mt-1">Columns required: <code>Date</code> and <code>DividendPerUnit</code> (or <code>Rate</code>).</p>
+            </div>
+            <button onclick="importDivExcel()" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-medium py-2 rounded-lg text-xs transition">
+              <i class="fa-solid fa-cloud-arrow-up mr-1"></i> Import Dividend Records
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Dividend History Table View -->
+      <div class="border-t border-slate-200 pt-6">
+        <div class="flex justify-between items-center mb-4">
+          <div class="flex items-center gap-3">
+            <label class="text-xs font-semibold uppercase text-slate-500">Show Dividends for:</label>
+            <select id="divViewSchemeSelect" onchange="renderDivHistoryTable()" class="border border-slate-300 rounded-lg p-1.5 text-sm"></select>
+          </div>
+          <span class="text-xs text-slate-500" id="divCountBadge">0 payouts</span>
+        </div>
+        <div class="overflow-y-auto max-h-72 rounded-xl border border-slate-200">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-slate-100 text-slate-600 text-xs font-semibold uppercase sticky top-0">
+              <tr>
+                <th class="py-2.5 px-4">Record / Ex-Date</th>
+                <th class="py-2.5 px-4 text-right">Dividend Per Unit (₹)</th>
+                <th class="py-2.5 px-4 text-center">Action</th>
+              </tr>
+            </thead>
+            <tbody id="divHistoryTableBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ADD SCHEME MODAL -->
+  <div id="addSchemeModal" class="fixed inset-0 bg-slate-900 bg-opacity-50 flex items-center justify-center p-4 z-50 hidden">
+    <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl">
+      <div class="flex justify-between items-center mb-4">
+        <h3 class="text-base font-bold text-slate-800">Add Mutual Fund Scheme</h3>
+        <button onclick="closeAddSchemeModal()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-lg"></i></button>
+      </div>
+      <form onsubmit="handleCreateScheme(event)" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Scheme Name *</label>
+          <input type="text" id="newSchemeName" required placeholder="e.g. HDFC Balanced Advantage Fund - IDCW Payout" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 mb-1">Scheme Code / Identifier *</label>
+          <input type="text" id="newSchemeCode" required placeholder="e.g. HDFC-BAF-IDCW" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Category</label>
+            <select id="newSchemeCategory" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm">
+              <option value="Hybrid / Balanced">Hybrid / Balanced</option>
+              <option value="Equity">Equity</option>
+              <option value="Debt">Debt</option>
+              <option value="Arbitrage">Arbitrage</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-600 mb-1">Inception Date</label>
+            <input type="date" id="newSchemeInception" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm">
+          </div>
+        </div>
+        <div class="pt-2 flex justify-end gap-2">
+          <button type="button" onclick="closeAddSchemeModal()" class="px-4 py-2 border border-slate-300 text-slate-600 rounded-lg text-xs font-medium">Cancel</button>
+          <button type="submit" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium shadow">Save Scheme</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT APPLICATION LOGIC -->
+  <script>
+    // --- DATABASE & STATE MANAGEMENT ---
+    const DB_KEY = "MF_DIVIDEND_PORTAL_DB_V1";
+
+    let appData = {
+      schemes: [],
+      navHistory: {}, // { schemeId: [ { date: "YYYY-MM-DD", nav: 45.23 } ] }
+      dividendHistory: {} // { schemeId: [ { date: "YYYY-MM-DD", rate: 0.35 } ] }
+    };
+
+    let activeReportData = null;
+    let comparisonChartInstance = null;
+
+    // Load Initial Data from LocalStorage (or seed sample data if fresh)
+    function initDatabase() {
+      const stored = localStorage.getItem(DB_KEY);
+      if (stored) {
+        try {
+          appData = JSON.parse(stored);
+        } catch (e) {
+          console.error("Failed to parse DB, seeding sample data");
+          seedSampleData();
+        }
+      } else {
+        seedSampleData();
+      }
+      refreshSchemeSelects();
+      renderSchemesTable();
+    }
+
+    function saveDatabase() {
+      localStorage.setItem(DB_KEY, JSON.stringify(appData));
+      refreshSchemeSelects();
+      renderSchemesTable();
+    }
+
+    // Seed realistic sample data for initial demonstration
+    function seedSampleData() {
+      const scheme1Id = "SCHEME_SAMPLE_1";
+      const scheme2Id = "SCHEME_SAMPLE_2";
+
+      appData = {
+        schemes: [
+          { id: scheme1Id, code: "ICICI-EQ-HYB-IDCW", name: "ICICI Prudential Equity & Debt Fund - IDCW Payout", category: "Hybrid / Balanced", inception: "2015-01-01" },
+          { id: scheme2Id, code: "HDFC-BAF-IDCW", name: "HDFC Balanced Advantage Fund - IDCW Payout", category: "Hybrid / Balanced", inception: "2016-01-01" }
+        ],
+        navHistory: {
+          [scheme1Id]: generateSampleNavs(36.5, 52.8, 1200),
+          [scheme2Id]: generateSampleNavs(28.0, 44.5, 1200)
+        },
+        dividendHistory: {
+          [scheme1Id]: generateSampleDividends(0.35, 1200, 30),
+          [scheme2Id]: generateSampleDividends(0.28, 1200, 30)
+        }
+      };
+      localStorage.setItem(DB_KEY, JSON.stringify(appData));
+    }
+
+    function generateSampleNavs(startNav, endNav, days) {
+      let navs = [];
+      const today = new Date();
+      for (let i = days; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        // Exclude weekends
+        if (d.getDay() !== 0 && d.getDay() !== 6) {
+          const progress = (days - i) / days;
+          const fluctuation = (Math.sin(i / 15) * 1.5) + ((Math.random() - 0.5) * 0.8);
+          const currentNav = parseFloat((startNav + (endNav - startNav) * progress + fluctuation).toFixed(4));
+          navs.push({ date: d.toISOString().split("T")[0], nav: Math.max(10, currentNav) });
+        }
+      }
+      return navs;
+    }
+
+    function generateSampleDividends(rate, days, intervalDays) {
+      let divs = [];
+      const today = new Date();
+      for (let i = days - intervalDays; i >= 10; i -= intervalDays) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        divs.push({
+          date: d.toISOString().split("T")[0],
+          rate: parseFloat((rate + (Math.random() * 0.05 - 0.025)).toFixed(4))
+        });
+      }
+      return divs;
+    }
+
+    // --- NAVIGATION TABS ---
+    function switchTab(tabId) {
+      ['cashflow', 'comparison', 'schemes', 'nav', 'dividends'].forEach(t => {
+        document.getElementById(`view-${t}`).classList.add('hidden');
+        document.getElementById(`tab-${t}`).classList.remove('tab-active');
+        document.getElementById(`tab-${t}`).classList.add('text-slate-500');
+      });
+      document.getElementById(`view-${tabId}`).classList.remove('hidden');
+      document.getElementById(`tab-${tabId}`).classList.add('tab-active');
+      document.getElementById(`tab-${tabId}`).classList.remove('text-slate-500');
+
+      if (tabId === 'nav') renderNavHistoryTable();
+      if (tabId === 'dividends') renderDivHistoryTable();
+      if (tabId === 'comparison') renderComparisonCheckboxes();
+    }
+
+    // --- REFRESH UI DROPDOWNS ---
+    function refreshSchemeSelects() {
+      const selects = ['cfSchemeSelect', 'navSchemeSelect', 'bulkNavSchemeSelect', 'navViewSchemeSelect', 'divSchemeSelect', 'bulkDivSchemeSelect', 'divViewSchemeSelect'];
+      selects.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const currentVal = el.value;
+        el.innerHTML = appData.schemes.map(s => `<option value="${s.id}">${s.name} (${s.code})</option>`).join('');
+        if (currentVal && appData.schemes.some(s => s.id === currentVal)) {
+          el.value = currentVal;
+        }
+      });
+      renderComparisonCheckboxes();
+    }
+
+    // --- SCHEME MANAGEMENT ---
+    function openAddSchemeModal() {
+      document.getElementById('addSchemeModal').classList.remove('hidden');
+    }
+    function closeAddSchemeModal() {
+      document.getElementById('addSchemeModal').classList.add('hidden');
+    }
+    function handleCreateScheme(e) {
+      e.preventDefault();
+      const name = document.getElementById('newSchemeName').value.trim();
+      const code = document.getElementById('newSchemeCode').value.trim();
+      const category = document.getElementById('newSchemeCategory').value;
+      const inception = document.getElementById('newSchemeInception').value || new Date().toISOString().split('T')[0];
+      const id = "SCHEME_" + Date.now();
+
+      appData.schemes.push({ id, code, name, category, inception });
+      appData.navHistory[id] = [];
+      appData.dividendHistory[id] = [];
+
+      saveDatabase();
+      closeAddSchemeModal();
+      e.target.reset();
+      alert("Scheme created successfully!");
+    }
+
+    function renderSchemesTable() {
+      const tbody = document.getElementById('schemesTableBody');
+      if (!tbody) return;
+      tbody.innerHTML = appData.schemes.map(s => {
+        const navCount = (appData.navHistory[s.id] || []).length;
+        const divCount = (appData.dividendHistory[s.id] || []).length;
+        return `
+          <tr class="hover:bg-slate-50">
+            <td class="py-3 px-4 font-mono text-xs font-semibold text-slate-700">${s.code}</td>
+            <td class="py-3 px-4 font-medium text-slate-900">${s.name}</td>
+            <td class="py-3 px-4"><span class="badge bg-slate-100 text-slate-600">${s.category}</span></td>
+            <td class="py-3 px-4 text-xs text-slate-600">${navCount} records</td>
+            <td class="py-3 px-4 text-xs text-slate-600">${divCount} payouts</td>
+            <td class="py-3 px-4 text-center">
+              <button onclick="deleteScheme('${s.id}')" class="text-rose-600 hover:text-rose-800 text-xs px-2 py-1 rounded transition">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function deleteScheme(id) {
+      if (!confirm("Are you sure you want to delete this scheme and its historical NAV/Dividends?")) return;
+      appData.schemes = appData.schemes.filter(s => s.id !== id);
+      delete appData.navHistory[id];
+      delete appData.dividendHistory[id];
+      saveDatabase();
+    }
+
+    // --- NAV IMPORT & HANDLING ---
+    function handleManualNavSubmit(e) {
+      e.preventDefault();
+      const schemeId = document.getElementById('navSchemeSelect').value;
+      const date = document.getElementById('navDate').value;
+      const nav = parseFloat(document.getElementById('navValue').value);
+
+      upsertNav(schemeId, date, nav);
+      saveDatabase();
+      renderNavHistoryTable();
+      alert("NAV record saved!");
+      document.getElementById('navValue').value = "";
+    }
+
+    function upsertNav(schemeId, date, nav) {
+      if (!appData.navHistory[schemeId]) appData.navHistory[schemeId] = [];
+      const list = appData.navHistory[schemeId];
+      const existingIdx = list.findIndex(item => item.date === date);
+      if (existingIdx >= 0) {
+        list[existingIdx].nav = nav;
+      } else {
+        list.push({ date, nav });
+      }
+      list.sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    function importNavExcel() {
+      const schemeId = document.getElementById('bulkNavSchemeSelect').value;
+      const fileInput = document.getElementById('navExcelFile');
+      if (!fileInput.files.length) {
+        alert("Please select an Excel or CSV file to import.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+
+        let added = 0;
+        rows.forEach(r => {
+          let rawDate = r.Date || r.date || r.DATE;
+          let rawNav = r.NAV || r.nav || r.Nav;
+
+          if (rawDate && rawNav) {
+            let formattedDate = formatDateString(rawDate);
+            let navVal = parseFloat(rawNav);
+            if (formattedDate && !isNaN(navVal)) {
+              upsertNav(schemeId, formattedDate, navVal);
+              added++;
+            }
+          }
+        });
+        saveDatabase();
+        renderNavHistoryTable();
+        alert(`Successfully imported ${added} NAV records!`);
+        fileInput.value = "";
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function renderNavHistoryTable() {
+      const schemeId = document.getElementById('navViewSchemeSelect').value;
+      const tbody = document.getElementById('navHistoryTableBody');
+      const badge = document.getElementById('navCountBadge');
+      if (!schemeId || !appData.navHistory[schemeId]) {
+        tbody.innerHTML = `<tr><td colspan="3" class="text-center py-4 text-slate-400">No records found.</td></tr>`;
+        badge.innerText = "0 records";
+        return;
+      }
+      const list = [...appData.navHistory[schemeId]].reverse();
+      badge.innerText = `${list.length} records`;
+      tbody.innerHTML = list.slice(0, 100).map(item => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2 px-4 text-slate-700">${item.date}</td>
+          <td class="py-2 px-4 text-right font-mono font-medium text-slate-800">₹${item.nav.toFixed(4)}</td>
+          <td class="py-2 px-4 text-center">
+            <button onclick="deleteNavRecord('${schemeId}', '${item.date}')" class="text-rose-500 hover:text-rose-700 text-xs"><i class="fa-solid fa-trash"></i></button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function deleteNavRecord(schemeId, date) {
+      appData.navHistory[schemeId] = appData.navHistory[schemeId].filter(i => i.date !== date);
+      saveDatabase();
+      renderNavHistoryTable();
+    }
+
+    function downloadNavTemplate() {
+      const ws_data = [
+        ["Date", "NAV"],
+        ["2024-01-01", 45.2500],
+        ["2024-01-02", 45.3100],
+        ["2024-01-03", 45.4200]
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(ws_data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "NAV_Template");
+      XLSX.writeFile(wb, "NAV_Import_Template.xlsx");
+    }
+
+    // --- DIVIDEND IMPORT & HANDLING ---
+    function handleManualDivSubmit(e) {
+      e.preventDefault();
+      const schemeId = document.getElementById('divSchemeSelect').value;
+      const date = document.getElementById('divDate').value;
+      const rate = parseFloat(document.getElementById('divRate').value);
+
+      upsertDiv(schemeId, date, rate);
+      saveDatabase();
+      renderDivHistoryTable();
+      alert("Dividend record saved!");
+      document.getElementById('divRate').value = "";
+    }
+
+    function upsertDiv(schemeId, date, rate) {
+      if (!appData.dividendHistory[schemeId]) appData.dividendHistory[schemeId] = [];
+      const list = appData.dividendHistory[schemeId];
+      const existingIdx = list.findIndex(item => item.date === date);
+      if (existingIdx >= 0) {
+        list[existingIdx].rate = rate;
+      } else {
+        list.push({ date, rate });
+      }
+      list.sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
+
+    function importDivExcel() {
+      const schemeId = document.getElementById('bulkDivSchemeSelect').value;
+      const fileInput = document.getElementById('divExcelFile');
+      if (!fileInput.files.length) {
+        alert("Please select an Excel or CSV file to import.");
+        return;
+      }
+      const file = fileInput.files[0];
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+
+        let added = 0;
+        rows.forEach(r => {
+          let rawDate = r.Date || r.date || r.RecordDate || r.DATE;
+          let rawRate = r.DividendPerUnit || r.rate || r.Rate || r.Dividend;
+
+          if (rawDate && rawRate) {
+            let formattedDate = formatDateString(rawDate);
+            let rateVal = parseFloat(rawRate);
+            if (formattedDate && !isNaN(rateVal)) {
+              upsertDiv(schemeId, formattedDate, rateVal);
+              added++;
+            }
+          }
+        });
+        saveDatabase();
+        renderDivHistoryTable();
+        alert(`Successfully imported ${added} Dividend events!`);
+        fileInput.value = "";
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function renderDivHistoryTable() {
+      const schemeId = document.getElementById('divViewSchemeSelect').value;
+      const tbody = document.getElementById('divHistoryTableBody');
+      const badge = document.getElementById('divCountBadge');
+      if (!schemeId || !appData.dividendHistory[schemeId]) {
+        tbody.innerHTML = `<tr><td colspan="3" class="text-center py-4 text-slate-400">No records found.</td></tr>`;
+        badge.innerText = "0 payouts";
+        return;
+      }
+      const list = [...appData.dividendHistory[schemeId]].reverse();
+      badge.innerText = `${list.length} payouts`;
+      tbody.innerHTML = list.map(item => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2 px-4 text-slate-700">${item.date}</td>
+          <td class="py-2 px-4 text-right font-mono font-medium text-emerald-600">₹${item.rate.toFixed(4)}</td>
+          <td class="py-2 px-4 text-center">
+            <button onclick="deleteDivRecord('${schemeId}', '${item.date}')" class="text-rose-500 hover:text-rose-700 text-xs"><i class="fa-solid fa-trash"></i></button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function deleteDivRecord(schemeId, date) {
+      appData.dividendHistory[schemeId] = appData.dividendHistory[schemeId].filter(i => i.date !== date);
+      saveDatabase();
+      renderDivHistoryTable();
+    }
+
+    function downloadDivTemplate() {
+      const ws_data = [
+        ["Date", "DividendPerUnit"],
+        ["2024-01-15", 0.35],
+        ["2024-02-15", 0.35],
+        ["2024-03-15", 0.40]
+      ];
+      const ws = XLSX.utils.aoa_to_sheet(ws_data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Dividend_Template");
+      XLSX.writeFile(wb, "Dividend_Import_Template.xlsx");
+    }
+
+    // --- CASHFLOW CALCULATION & REPORT GENERATOR ---
+    function handlePeriodChange() {
+      const period = document.getElementById('cfPeriodSelect').value;
+      const customBox = document.getElementById('customDateContainer');
+      if (period === 'CUSTOM') {
+        customBox.classList.remove('hidden');
+      } else {
+        customBox.classList.add('hidden');
+      }
+    }
+
+    function calculateStartDate(period, customDate, allNavs) {
+      if (period === 'CUSTOM') return customDate;
+      if (period === 'INCEPTION') return allNavs.length > 0 ? allNavs[0].date : null;
+
+      const today = new Date();
+      let years = 1;
+      if (period === '1Y') years = 1;
+      else if (period === '2Y') years = 2;
+      else if (period === '3Y') years = 3;
+      else if (period === '5Y') years = 5;
+      else if (period === '7Y') years = 7;
+      else if (period === '10Y') years = 10;
+      else if (period === '15Y') years = 15;
+      else if (period === '20Y') years = 20;
+      else if (period === '25Y') years = 25;
+
+      const targetDate = new Date(today);
+      targetDate.setFullYear(targetDate.getFullYear() - years);
+      return targetDate.toISOString().split('T')[0];
+    }
+
+    function findNearestNav(navs, targetDate) {
+      if (!navs || navs.length === 0) return null;
+      // find exact or next available trading day
+      let match = navs.find(n => n.date >= targetDate);
+      if (!match) match = navs[navs.length - 1]; // latest if target is in future
+      return match;
+    }
+
+    function computeSchemeCashflow(schemeId, investmentAmount, startDateStr) {
+      const navs = appData.navHistory[schemeId] || [];
+      const divs = appData.dividendHistory[schemeId] || [];
+
+      if (navs.length === 0) return { error: "No NAV history found for this scheme." };
+
+      const initialNavRecord = findNearestNav(navs, startDateStr);
+      if (!initialNavRecord) return { error: "Could not find NAV for initial investment date." };
+
+      const initialDate = initialNavRecord.date;
+      const initialNav = initialNavRecord.nav;
+      const units = investmentAmount / initialNav;
+
+      const latestNavRecord = navs[navs.length - 1];
+      const finalDate = latestNavRecord.date;
+      const latestNav = latestNavRecord.nav;
+      const finalValue = units * latestNav;
+
+      // Filter dividends occurring between initialDate and finalDate
+      const eligibleDivs = divs.filter(d => d.date >= initialDate && d.date <= finalDate);
+      eligibleDivs.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      let cashflowTimeline = [];
+      let cumulativeDiv = 0;
+
+      // Step 1: Initial Outflow
+      cashflowTimeline.push({
+        date: initialDate,
+        type: "Initial Investment",
+        nav: initialNav,
+        divRate: 0,
+        amount: -investmentAmount,
+        units: units,
+        cumulativeDiv: 0,
+        fundValue: investmentAmount
+      });
+
+      // Step 2: Intermediate Dividend Inflows
+      eligibleDivs.forEach(d => {
+        const divAmount = units * d.rate;
+        cumulativeDiv += divAmount;
+        // find nav on dividend date
+        const nearestNavOnDiv = findNearestNav(navs, d.date);
+        const navAtDiv = nearestNavOnDiv ? nearestNavOnDiv.nav : latestNav;
+
+        cashflowTimeline.push({
+          date: d.date,
+          type: "Dividend Payout (IDCW)",
+          nav: navAtDiv,
+          divRate: d.rate,
+          amount: divAmount,
+          units: units,
+          cumulativeDiv: cumulativeDiv,
+          fundValue: units * navAtDiv
+        });
+      });
+
+      // Step 3: Final Portfolio Valuation
+      cashflowTimeline.push({
+        date: finalDate,
+        type: "Current Valuation",
+        nav: latestNav,
+        divRate: 0,
+        amount: finalValue,
+        units: units,
+        cumulativeDiv: cumulativeDiv,
+        fundValue: finalValue
+      });
+
+      // Compute XIRR
+      const xirrCashflows = cashflowTimeline.map(item => ({
+        date: new Date(item.date),
+        amount: item.amount
+      }));
+      const xirrValue = calculateXIRR(xirrCashflows);
+
+      const totalGain = (cumulativeDiv + finalValue) - investmentAmount;
+      const totalGainPct = (totalGain / investmentAmount) * 100;
+
+      return {
+        scheme: appData.schemes.find(s => s.id === schemeId),
+        initialDate,
+        initialNav,
+        units,
+        finalDate,
+        latestNav,
+        finalValue,
+        cumulativeDiv,
+        totalGain,
+        totalGainPct,
+        xirrValue,
+        cashflowTimeline
+      };
+    }
+
+    function generateCashflowReport() {
+      const schemeId = document.getElementById('cfSchemeSelect').value;
+      const amount = parseFloat(document.getElementById('cfAmount').value);
+      const period = document.getElementById('cfPeriodSelect').value;
+      const customDate = document.getElementById('cfCustomDate').value;
+
+      if (!schemeId) { alert("Please select a scheme."); return; }
+      if (isNaN(amount) || amount <= 0) { alert("Please enter a valid investment amount."); return; }
+
+      const allNavs = appData.navHistory[schemeId] || [];
+      const startDate = calculateStartDate(period, customDate, allNavs);
+
+      const result = computeSchemeCashflow(schemeId, amount, startDate);
+      if (result.error) {
+        alert(result.error);
+        return;
+      }
+
+      activeReportData = result;
+
+      // Update Summary Cards
+      document.getElementById('resInitialInv').innerText = "₹" + amount.toLocaleString('en-IN');
+      document.getElementById('resUnits').innerText = result.units.toFixed(3) + " Units";
+      document.getElementById('resTotalDiv').innerText = "₹" + Math.round(result.cumulativeDiv).toLocaleString('en-IN');
+      document.getElementById('resDivYield').innerText = ((result.cumulativeDiv / amount) * 100).toFixed(1) + "% of Cost";
+      document.getElementById('resCurrentVal').innerText = "₹" + Math.round(result.finalValue).toLocaleString('en-IN');
+      document.getElementById('resLatestNav').innerText = `NAV: ₹${result.latestNav.toFixed(4)} (${result.finalDate})`;
+      document.getElementById('resTotalVal').innerText = "₹" + Math.round(result.finalValue + result.cumulativeDiv).toLocaleString('en-IN');
+      document.getElementById('resGain').innerText = `Gain: ₹${Math.round(result.totalGain).toLocaleString('en-IN')} (${result.totalGainPct.toFixed(1)}%)`;
+      document.getElementById('resXirr').innerText = (result.xirrValue * 100).toFixed(2) + "%";
+
+      // Render Table
+      const tbody = document.getElementById('cashflowTableBody');
+      tbody.innerHTML = result.cashflowTimeline.map(row => {
+        let isInv = row.type === "Initial Investment";
+        let isVal = row.type === "Current Valuation";
+        let rowClass = isInv ? "bg-blue-50 font-semibold" : (isVal ? "bg-purple-50 font-semibold" : "hover:bg-slate-50");
+        let amountText = isInv 
+          ? `<span class="text-rose-600">-₹${Math.abs(row.amount).toLocaleString('en-IN')}</span>` 
+          : `<span class="text-emerald-600">+₹${Math.round(row.amount).toLocaleString('en-IN')}</span>`;
+
+        return `
+          <tr class="${rowClass}">
+            <td class="py-2.5 px-4 text-slate-700">${row.date}</td>
+            <td class="py-2.5 px-4 text-slate-800">${row.type}</td>
+            <td class="py-2.5 px-4 text-right font-mono">₹${row.nav.toFixed(4)}</td>
+            <td class="py-2.5 px-4 text-right font-mono">${row.divRate > 0 ? "₹" + row.divRate.toFixed(4) : "-"}</td>
+            <td class="py-2.5 px-4 text-right font-mono">${amountText}</td>
+            <td class="py-2.5 px-4 text-right font-mono text-emerald-700">₹${Math.round(row.cumulativeDiv).toLocaleString('en-IN')}</td>
+            <td class="py-2.5 px-4 text-right font-mono text-slate-900">₹${Math.round(row.fundValue).toLocaleString('en-IN')}</td>
+          </tr>
+        `;
+      }).join('');
+
+      document.getElementById('cashflowResults').style.display = 'block';
+      document.getElementById('exportButtonGroup').style.display = 'flex';
+    }
+
+    // --- ACCURATE XIRR (NEWTON-RAPHSON) ---
+    function calculateXIRR(cashflows, guess = 0.1) {
+      if (cashflows.length < 2) return 0;
+      let x0 = guess;
+      const maxIter = 100;
+      const tol = 1e-6;
+
+      const t0 = cashflows[0].date.getTime();
+
+      for (let i = 0; i < maxIter; i++) {
+        let fValue = 0;
+        let fDerivative = 0;
+
+        for (let j = 0; j < cashflows.length; j++) {
+          const cf = cashflows[j];
+          const dt = (cf.date.getTime() - t0) / (365.25 * 24 * 60 * 60 * 1000);
+          const denom = Math.pow(1 + x0, dt);
+          if (denom === 0) continue;
+
+          fValue += cf.amount / denom;
+          fDerivative -= (dt * cf.amount) / Math.pow(1 + x0, dt + 1);
+        }
+
+        if (Math.abs(fDerivative) < 1e-9) break;
+
+        const x1 = x0 - (fValue / fDerivative);
+        if (Math.abs(x1 - x0) <= tol) {
+          return x1;
+        }
+        x0 = x1;
+        if (x0 <= -1.0) x0 = -0.999; // guard against singularity
+      }
+      return x0;
+    }
+
+    // --- MULTI-SCHEME COMPARISON ---
+    function renderComparisonCheckboxes() {
+      const container = document.getElementById('comparisonSchemeCheckboxes');
+      if (!container) return;
+      container.innerHTML = appData.schemes.map((s, idx) => `
+        <label class="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2 rounded-lg text-xs cursor-pointer hover:bg-slate-100">
+          <input type="checkbox" value="${s.id}" class="cmp-checkbox" ${idx < 3 ? 'checked' : ''}>
+          <span class="font-medium text-slate-800">${s.name}</span>
+        </label>
+      `).join('');
+    }
+
+    function runComparison() {
+      const checkedBoxes = Array.from(document.querySelectorAll('.cmp-checkbox:checked'));
+      if (checkedBoxes.length === 0) {
+        alert("Please select at least one scheme to compare.");
+        return;
+      }
+      const amount = parseFloat(document.getElementById('cmpAmount').value) || 500000;
+      const period = document.getElementById('cmpPeriodSelect').value;
+
+      const results = [];
+      checkedBoxes.forEach(cb => {
+        const schemeId = cb.value;
+        const allNavs = appData.navHistory[schemeId] || [];
+        const startDate = calculateStartDate(period, null, allNavs);
+        const res = computeSchemeCashflow(schemeId, amount, startDate);
+        if (!res.error) results.push(res);
+      });
+
+      if (results.length === 0) {
+        alert("Insufficient data in selected schemes to run comparison.");
+        return;
+      }
+
+      // Render Comparison Table
+      const tbody = document.getElementById('comparisonTableBody');
+      tbody.innerHTML = results.map(r => `
+        <tr class="hover:bg-slate-50">
+          <td class="py-3 px-4 font-semibold text-slate-800">${r.scheme.name}</td>
+          <td class="py-3 px-4 text-right">₹${amount.toLocaleString('en-IN')}</td>
+          <td class="py-3 px-4 text-right font-mono">${r.units.toFixed(2)}</td>
+          <td class="py-3 px-4 text-right font-mono text-emerald-600 font-bold">₹${Math.round(r.cumulativeDiv).toLocaleString('en-IN')}</td>
+          <td class="py-3 px-4 text-right font-mono text-blue-600 font-bold">₹${Math.round(r.finalValue).toLocaleString('en-IN')}</td>
+          <td class="py-3 px-4 text-right font-mono text-purple-700 font-bold">₹${Math.round(r.finalValue + r.cumulativeDiv).toLocaleString('en-IN')}</td>
+          <td class="py-3 px-4 text-right font-mono font-black text-amber-600 text-sm">${(r.xirrValue * 100).toFixed(2)}%</td>
+        </tr>
+      `).join('');
+
+      // Render Comparison Chart
+      const labels = results.map(r => r.scheme.code);
+      const divData = results.map(r => Math.round(r.cumulativeDiv));
+      const valData = results.map(r => Math.round(r.finalValue));
+
+      if (comparisonChartInstance) comparisonChartInstance.destroy();
+
+      const ctx = document.getElementById('comparisonChart').getContext('2d');
+      comparisonChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: 'Total Dividends Received (₹)', data: divData, backgroundColor: '#10b981' },
+            { label: 'Current Fund Value (₹)', data: valData, backgroundColor: '#3b82f6' }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            title: { display: true, text: 'Dividends Received vs Current Value Comparison' }
+          },
+          scales: {
+            x: { stacked: true },
+            y: { stacked: true, ticks: { callback: v => "₹" + v.toLocaleString('en-IN') } }
+          }
+        }
+      });
+
+      document.getElementById('comparisonResults').classList.remove('hidden');
+    }
+
+    // --- REPORT EXPORTS (PDF & EXCEL) ---
+    function exportReportToExcel() {
+      if (!activeReportData) return;
+      const r = activeReportData;
+
+      // Sheet 1: Summary KPI
+      const summaryData = [
+        ["Mutual Fund Dividend Cashflow Report"],
+        ["Generated Date", new Date().toLocaleString()],
+        ["Scheme Name", r.scheme.name],
+        ["Scheme Code", r.scheme.code],
+        ["Category", r.scheme.category],
+        [""],
+        ["Initial Investment Amount (₹)", r.cashflowTimeline[0].amount * -1],
+        ["Investment Date", r.initialDate],
+        ["Initial NAV (₹)", r.initialNav],
+        ["Units Allotted", r.units],
+        ["Total Dividends Received (₹)", r.cumulativeDiv],
+        ["Current Fund Value (₹)", r.finalValue],
+        ["Valuation Date", r.finalDate],
+        ["Latest NAV (₹)", r.latestNav],
+        ["Total Realized + Unrealized (₹)", r.finalValue + r.cumulativeDiv],
+        ["Net Profit / Gain (₹)", r.totalGain],
+        ["Absolute Return (%)", r.totalGainPct.toFixed(2) + "%"],
+        ["Annualized XIRR (%)", (r.xirrValue * 100).toFixed(2) + "%"]
+      ];
+
+      // Sheet 2: Cashflow Detailed Table
+      const cfHeaders = ["Date", "Event", "Applicable NAV", "Dividend Per Unit", "Cashflow Amount", "Cumulative Dividends", "Fund Value"];
+      const cfRows = r.cashflowTimeline.map(row => [
+        row.date,
+        row.type,
+        row.nav,
+        row.divRate,
+        row.amount,
+        row.cumulativeDiv,
+        row.fundValue
+      ]);
+      const tableData = [cfHeaders, ...cfRows];
+
+      const wb = XLSX.utils.book_new();
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+      const wsDetails = XLSX.utils.aoa_to_sheet(tableData);
+
+      XLSX.utils.book_append_sheet(wb, wsSummary, "Investment_Summary");
+      XLSX.utils.book_append_sheet(wb, wsDetails, "Cashflow_Breakdown");
+
+      XLSX.writeFile(wb, `${r.scheme.code}_Dividend_Cashflow_Report.xlsx`);
+    }
+
+    function exportReportToPDF() {
+      if (!activeReportData) return;
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF('p', 'pt', 'a4');
+      const r = activeReportData;
+
+      // Title & Header
+      doc.setFontSize(16);
+      doc.setTextColor(30, 41, 59);
+      doc.text("Mutual Fund Dividend Cashflow Statement", 40, 45);
+
+      doc.setFontSize(10);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Generated on: ${new Date().toLocaleDateString('en-GB')}`, 40, 62);
+
+      // Scheme Banner
+      doc.setDrawColor(226, 232, 240);
+      doc.setFillColor(248, 250, 252);
+      doc.roundedRect(40, 75, 515, 55, 6, 6, 'FD');
+
+      doc.setFontSize(11);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(15, 23, 42);
+      doc.text(r.scheme.name, 52, 95);
+
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Code: ${r.scheme.code}  |  Category: ${r.scheme.category}  |  Horizon: ${r.initialDate} to ${r.finalDate}`, 52, 115);
+
+      // Summary KPI Grid
+      doc.autoTable({
+        startY: 140,
+        margin: { left: 40, right: 40 },
+        theme: 'grid',
+        headStyles: { fillColor: [37, 99, 235], textColor: 255, fontStyle: 'bold' },
+        head: [['Initial Investment', 'Units Allotted', 'Total Dividends', 'Current Value', 'XIRR %']],
+        body: [[
+          `Rs. ${Math.round(r.cashflowTimeline[0].amount * -1).toLocaleString('en-IN')}`,
+          r.units.toFixed(2),
+          `Rs. ${Math.round(r.cumulativeDiv).toLocaleString('en-IN')}`,
+          `Rs. ${Math.round(r.finalValue).toLocaleString('en-IN')}`,
+          `${(r.xirrValue * 100).toFixed(2)}%`
+        ]]
+      });
+
+      // Detailed Cashflow Table
+      const tableRows = r.cashflowTimeline.map(row => [
+        row.date,
+        row.type,
+        `Rs. ${row.nav.toFixed(2)}`,
+        row.divRate > 0 ? `Rs. ${row.divRate.toFixed(2)}` : '-',
+        row.amount < 0 ? `-Rs. ${Math.abs(Math.round(row.amount)).toLocaleString('en-IN')}` : `+Rs. ${Math.round(row.amount).toLocaleString('en-IN')}`,
+        `Rs. ${Math.round(row.cumulativeDiv).toLocaleString('en-IN')}`,
+        `Rs. ${Math.round(row.fundValue).toLocaleString('en-IN')}`
+      ]);
+
+      doc.autoTable({
+        startY: doc.lastAutoTable.finalY + 20,
+        margin: { left: 40, right: 40 },
+        theme: 'striped',
+        headStyles: { fillColor: [51, 65, 85], textColor: 255 },
+        styles: { fontSize: 8, cellPadding: 4 },
+        columnStyles: {
+          2: { halign: 'right' },
+          3: { halign: 'right' },
+          4: { halign: 'right' },
+          5: { halign: 'right' },
+          6: { halign: 'right' }
+        },
+        head: [['Date', 'Transaction Event', 'NAV', 'Div/Unit', 'Cashflow', 'Cum. Div', 'Fund Value']],
+        body: tableRows
+      });
+
+      doc.save(`${r.scheme.code}_Cashflow_Report.pdf`);
+    }
+
+    // --- BACKUP & RESTORE DATABASE ---
+    function exportFullDatabase() {
+      const jsonStr = JSON.stringify(appData, null, 2);
+      const blob = new Blob([jsonStr], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `MF_Dividend_Database_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importFullDatabase(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (imported.schemes && imported.navHistory && imported.dividendHistory) {
+            appData = imported;
+            saveDatabase();
+            alert("Database successfully restored!");
+            location.reload();
+          } else {
+            alert("Invalid backup file structure.");
+          }
+        } catch (err) {
+          alert("Error parsing JSON backup file.");
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // Helper Date formatter
+    function formatDateString(raw) {
+      if (raw instanceof Date) {
+        return raw.toISOString().split('T')[0];
+      }
+      let s = String(raw).trim();
+      // Handle DD-MM-YYYY or DD/MM/YYYY
+      if (s.includes('/') || s.includes('-')) {
+        const parts = s.split(/[\/\-]/);
+        if (parts[0].length === 4) return `${parts[0]}-${parts[1].padStart(2, '0')}-${parts[2].padStart(2, '0')}`;
+        if (parts[2].length === 4) return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+      }
+      return s;
+    }
+
+    // Initialize application on load
+    window.onload = initDatabase;
+  </script>
+</body>
+</html>
